@@ -1,0 +1,4 @@
+# Everything that runs on the lab PC, for development from source.
+# The Raspberry Pi part has its own installer: raspberry_pi/install_pi.sh
+-r stimulus/requirements.txt
+-r analysis/requirements.txt

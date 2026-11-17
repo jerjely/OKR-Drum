@@ -1,0 +1,6 @@
+# PC that drives the four monitors (Windows or macOS), in its own conda env "okr":
+#   conda create -n okr python=3.10 -y && conda activate okr && pip install -r requirements.txt
+psychopy
+PyQt6
+pyserial
+numpy

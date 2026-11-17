@@ -1,0 +1,196 @@
+# Builds the OKR Drum downloads and publishes them as a GitHub release.
+#
+# OKR Drum is not a single desktop app: the lab-PC part needs PsychoPy (installed into a
+# conda environment by its own script) and the camera part runs on a Raspberry Pi. So the
+# release attaches one zip per part instead of .exe/.pkg installers:
+#   OKR-Drum-<version>-Stimulus.zip, -RaspberryPi.zip, -Analysis.zip, -Hardware.zip
+#
+# Triggers
+#   - push a tag v*  (e.g. v1.0.0)                      -> build, test, release
+#   - Actions -> Run workflow, "version" filled in        -> build, test, create tag + release
+#   - Actions -> Run workflow, "version" left empty       -> build and test only
+#
+# Every built zip is unpacked and its scripts' self-tests are run on Windows, Apple-silicon
+# Mac, Intel Mac and (with real PsychoPy drawing) Linux before anything is released.
+
+name: Build installers
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, e.g. 1.0.0 (leave empty to only build and test)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+env:
+  APP: OKR-Drum
+  APP_TITLE: OKR Drum
+
+jobs:
+  build:
+    name: Build zips
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Work out the version
+        id: v
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            V="${GITHUB_REF_NAME#v}"; R=true
+          elif [[ -n "$INPUT_VERSION" ]]; then
+            V="${INPUT_VERSION#v}"; R=true
+          else
+            V="0.0.0-test.${GITHUB_RUN_NUMBER}"; R=false
+          fi
+          if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)?$ ]]; then
+            echo "::error::Version '$V' does not look like 1.0.0"; exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "release=$R" >> "$GITHUB_OUTPUT"
+          echo "Version $V (release: $R)"
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Make one zip per part
+        run: python tools/make_release_zips.py --version "${{ steps.v.outputs.version }}" --app "$APP" --out dist
+
+      - uses: actions/upload-artifact@v5
+        with:
+          name: release-zips
+          path: dist/*.zip
+          if-no-files-found: error
+
+  selftest:
+    name: Self-test (${{ matrix.os }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    env:
+      QT_QPA_PLATFORM: offscreen
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: tests
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-zips
+          path: zips
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Install test packages
+        run: python -m pip install -r tests/requirements-ci.txt
+      - name: Unpack the built zips
+        shell: bash
+        run: |
+          mkdir built
+          for z in zips/*.zip; do python -m zipfile -e "$z" built; done
+          ls -R built
+      - name: Versions stamped into the scripts
+        shell: bash
+        run: |
+          for f in built/$APP-Stimulus/okr_gui_experiment.py built/$APP-RaspberryPi/okr_record_pi.py built/$APP-Analysis/okr_camera_calibration.py; do
+            v=$(python "$f" --version); echo "$f -> $v"
+            [[ "$v" == "$VERSION" ]] || { echo "::error::$f reports $v, expected $VERSION"; exit 1; }
+          done
+      - name: Stimulus self-test (trial lists, geometry, settings window)
+        run: python built/${{ env.APP }}-Stimulus/okr_gui_experiment.py --selftest
+      - name: Raspberry Pi recorder self-test (simulated camera and serial markers)
+        run: python built/${{ env.APP }}-RaspberryPi/okr_record_pi.py --selftest
+      - name: Camera calibration self-test (synthetic wide-angle lens)
+        run: python built/${{ env.APP }}-Analysis/okr_camera_calibration.py --selftest
+
+  render-test:
+    name: Self-test with PsychoPy drawing (Linux)
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-zips
+          path: zips
+      - name: System libraries for OpenGL under a virtual display
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libglu1-mesa libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.10'
+      - name: Install PsychoPy and the Stimulus requirements
+        run: |
+          python -m zipfile -e zips/$APP-*-Stimulus.zip built
+          python -m pip install --upgrade pip
+          python -m pip install -r built/$APP-Stimulus/requirements.txt
+      - name: Run two gratings and check what was drawn
+        run: xvfb-run -a -s "-screen 0 1280x1024x24" python built/$APP-Stimulus/okr_gui_experiment.py --selftest --render
+
+  release:
+    name: Publish release
+    needs: [build, selftest, render-test]
+    if: needs.build.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: release-zips
+          path: zips
+      - name: Release notes
+        shell: bash
+        run: |
+          cat > notes.md <<EOF
+          ## $APP_TITLE $VERSION
+
+          Four-monitor optokinetic drum: warped drifting gratings on the lab PC, IR camera
+          recording with trial sync on a Raspberry Pi, and lens calibration for tracking.
+
+          | Download | Where it goes |
+          |---|---|
+          | \`$APP-$VERSION-Stimulus.zip\` | Lab PC (Windows or Mac) that drives the four monitors. Needs Miniconda; \`install_windows.bat\` / \`install_mac.command\` installs PsychoPy into a conda env and adds a Start-menu entry. |
+          | \`$APP-$VERSION-RaspberryPi.zip\` | Raspberry Pi with the camera: \`bash install_pi.sh\`, then run \`okr_record_pi.py\` in Thonny. |
+          | \`$APP-$VERSION-Analysis.zip\` | Any PC: lens calibration and DeepLabCut → cm conversion. |
+          | \`$APP-$VERSION-Hardware.zip\` | Build drawing (A3, 1:5) and wiring notes. |
+
+          PsychoPy, Miniconda and the Raspberry Pi packages are not bundled; the install scripts fetch them.
+
+          **The scripts are not signed.**
+          - Windows: if SmartScreen stops a \`.bat\`, click **More info → Run anyway**.
+          - Mac: if a \`.command\` is blocked, open **System Settings → Privacy & Security** and click **Open Anyway**.
+
+          Every part passed its self-test on Windows, macOS (Apple silicon and Intel) and Linux before this release.
+          EOF
+          cat notes.md
+      - name: Create or update the release
+        shell: bash
+        run: |
+          TAG="v$VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" zips/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$TAG" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG" zips/*.zip --repo "$GITHUB_REPOSITORY" \
+              --title "$APP_TITLE $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
+          fi
