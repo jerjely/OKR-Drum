@@ -1,6 +1,0 @@
-# Used by the GitHub self-tests (everything except PsychoPy and picamera2)
-numpy
-PyQt6
-pyserial
-opencv-python-headless
-pandas

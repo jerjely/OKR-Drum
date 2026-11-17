@@ -1,0 +1,22 @@
+#!/bin/bash
+# One-time Raspberry Pi setup for the OKR Drum recorder (run with sudo):
+#   serial port on GPIO 14/15 for the trial markers, user in the dialout group,
+#   optional: rclone for Google Drive uploads.
+set -e
+if [ "$(id -u)" != "0" ]; then echo "Run with sudo:  sudo okr-recorder-setup"; exit 1; fi
+USER_NAME="${SUDO_USER:-$USER}"
+raspi-config nonint do_serial_hw 0 || true      # serial hardware on
+raspi-config nonint do_serial_cons 1 || true    # no login console on it
+CFG=/boot/firmware/config.txt; [ -f "$CFG" ] || CFG=/boot/config.txt
+if grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null && ! grep -q "^dtparam=uart0=on" "$CFG"; then
+  echo "dtparam=uart0=on" >> "$CFG"
+  echo "Pi 5: GPIO 14/15 serial (/dev/ttyAMA0) enabled."
+fi
+usermod -aG dialout "$USER_NAME" || true
+if ! command -v rclone >/dev/null; then
+  read -r -p "Install rclone for automatic Google Drive uploads? [y/N] " a
+  if [[ "$a" =~ ^[Yy] ]]; then apt-get install -y rclone; fi
+fi
+echo
+echo "Done. Reboot once (sudo reboot)."
+command -v rclone >/dev/null && echo "For uploads, sign in to Google once (as $USER_NAME, not root):  rclone config  -> n -> name gdrive -> type drive"

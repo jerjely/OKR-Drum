@@ -1,4 +1,11 @@
-# Everything that runs on the lab PC, for development from source.
-# The Raspberry Pi part has its own installer: raspberry_pi/install_pi.sh
--r stimulus/requirements.txt
--r analysis/requirements.txt
+# OKR Drum desktop app (stimulus, calibration, analysis). Python 3.10 - 3.13.
+# DeepLabCut is NOT installed here: it lives in its own conda environment that the app calls.
+PySide6>=6.6
+pyqtgraph>=0.13.7
+numpy>=1.24
+scipy>=1.10
+pandas>=2.0
+matplotlib>=3.7
+opencv-python-headless>=4.8
+pyserial>=3.5
+tables>=3.8

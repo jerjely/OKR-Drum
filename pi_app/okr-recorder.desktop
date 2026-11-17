@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=OKR Drum recorder
+Comment=Record the optokinetic drum camera with trial sync from the lab PC
+Exec=okr-recorder
+Icon=okr-recorder
+Terminal=false
+Categories=Science;Video;

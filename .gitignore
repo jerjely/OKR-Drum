@@ -1,32 +1,40 @@
-# Experiment data, recordings and results - never in the repository
-data/
-results/
-recordings/
-Behaviour/
-*.mp4
-*.avi
-*.mov
-*.h5
-*.npz
-*.log
-*_frames.csv
-*_markers.csv
-*_info.json
-*_settings.json
-okr_last_settings.json
-camera_settings.json
-calib*/
-# DeepLabCut output
-*DLC_*
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
 # Build output
 build/
 dist/
-*.zip
-# Python / OS clutter
-__pycache__/
-*.py[cod]
-.venv/
-venv/
-.ipynb_checkpoints/
+*.spec.bak
+*.deb
+*.pkg
+*.exe
+*.dmg
+pkgroot/
+
+# Data - never commit recordings or results
+data/
+recordings/
+results/
+videos/
+*.mp4
+*.avi
+*.h264
+*.mov
+*.h5
+*.pickle
+*_okr_trials.csv
+*_okr_summary.csv
+*_okr_frames.csv
+*_session.json
+selftest*.txt
+
+# OS / editors
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/

@@ -1,196 +1,263 @@
-# Builds the OKR Drum downloads and publishes them as a GitHub release.
-#
-# OKR Drum is not a single desktop app: the lab-PC part needs PsychoPy (installed into a
-# conda environment by its own script) and the camera part runs on a Raspberry Pi. So the
-# release attaches one zip per part instead of .exe/.pkg installers:
-#   OKR-Drum-<version>-Stimulus.zip, -RaspberryPi.zip, -Analysis.zip, -Hardware.zip
-#
-# Triggers
-#   - push a tag v*  (e.g. v1.0.0)                      -> build, test, release
-#   - Actions -> Run workflow, "version" filled in        -> build, test, create tag + release
-#   - Actions -> Run workflow, "version" left empty       -> build and test only
-#
-# Every built zip is unpacked and its scripts' self-tests are run on Windows, Apple-silicon
-# Mac, Intel Mac and (with real PsychoPy drawing) Linux before anything is released.
-
 name: Build installers
 
+# Push a tag like v1.2.0 (or run this workflow by hand with a version) to build and publish a release.
+# Run it by hand with the version left empty to only build and test.
 on:
   push:
-    tags: ['v*']
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to release, e.g. 1.0.0 (leave empty to only build and test)'
+        description: "Version to release, e.g. 1.2.0 (leave empty to only build and test)"
         required: false
-        default: ''
+        default: ""
 
 permissions:
-  contents: write
+  contents: read
 
-env:
-  APP: OKR-Drum
-  APP_TITLE: OKR Drum
+defaults:
+  run:
+    shell: bash
 
 jobs:
-  build:
-    name: Build zips
+  version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
       release: ${{ steps.v.outputs.release }}
     steps:
-      - uses: actions/checkout@v5
-
-      - name: Work out the version
-        id: v
-        shell: bash
+      - id: v
         env:
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            V="${GITHUB_REF_NAME#v}"; R=true
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF#refs/tags/v}"; rel=true
           elif [[ -n "$INPUT_VERSION" ]]; then
-            V="${INPUT_VERSION#v}"; R=true
+            v="${INPUT_VERSION#v}"; rel=true
           else
-            V="0.0.0-test.${GITHUB_RUN_NUMBER}"; R=false
+            v="0.0.0-test"; rel=false
           fi
-          if ! [[ "$V" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.+-][0-9A-Za-z.+-]+)?$ ]]; then
-            echo "::error::Version '$V' does not look like 1.0.0"; exit 1
+          if [[ ! "$v" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$v' is not a version like 1.2.0"; exit 1
           fi
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-          echo "release=$R" >> "$GITHUB_OUTPUT"
-          echo "Version $V (release: $R)"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "release=$rel" >> "$GITHUB_OUTPUT"
+          echo "Version $v, release: $rel"
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Make one zip per part
-        run: python tools/make_release_zips.py --version "${{ steps.v.outputs.version }}" --app "$APP" --out dist
-
-      - uses: actions/upload-artifact@v5
-        with:
-          name: release-zips
-          path: dist/*.zip
-          if-no-files-found: error
-
-  selftest:
-    name: Self-test (${{ matrix.os }})
-    needs: build
+  desktop:
+    needs: version
+    name: ${{ matrix.label }}
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-15, macos-15-intel]
+        include:
+          - os: windows-latest
+            label: Windows
+            arch: x86_64
+          - os: macos-15
+            label: macOS-AppleSilicon
+            arch: arm64
+          - os: macos-15-intel
+            label: macOS-Intel
+            arch: x86_64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     env:
-      QT_QPA_PLATFORM: offscreen
-      VERSION: ${{ needs.build.outputs.version }}
+      VERSION: ${{ needs.version.outputs.version }}
+      PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v5
-        with:
-          sparse-checkout: tests
-      - uses: actions/download-artifact@v5
-        with:
-          name: release-zips
-          path: zips
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.11'
-      - name: Install test packages
-        run: python -m pip install -r tests/requirements-ci.txt
-      - name: Unpack the built zips
-        shell: bash
-        run: |
-          mkdir built
-          for z in zips/*.zip; do python -m zipfile -e "$z" built; done
-          ls -R built
-      - name: Versions stamped into the scripts
-        shell: bash
-        run: |
-          for f in built/$APP-Stimulus/okr_gui_experiment.py built/$APP-RaspberryPi/okr_record_pi.py built/$APP-Analysis/okr_camera_calibration.py; do
-            v=$(python "$f" --version); echo "$f -> $v"
-            [[ "$v" == "$VERSION" ]] || { echo "::error::$f reports $v, expected $VERSION"; exit 1; }
-          done
-      - name: Stimulus self-test (trial lists, geometry, settings window)
-        run: python built/${{ env.APP }}-Stimulus/okr_gui_experiment.py --selftest
-      - name: Raspberry Pi recorder self-test (simulated camera and serial markers)
-        run: python built/${{ env.APP }}-RaspberryPi/okr_record_pi.py --selftest
-      - name: Camera calibration self-test (synthetic wide-angle lens)
-        run: python built/${{ env.APP }}-Analysis/okr_camera_calibration.py --selftest
+      - uses: actions/checkout@v4
 
-  render-test:
-    name: Self-test with PsychoPy drawing (Linux)
-    needs: build
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check the runner architecture
+        run: |
+          m="$(python -c 'import platform; print(platform.machine().lower())')"
+          echo "machine: $m"
+          case "${{ matrix.arch }}:$m" in
+            x86_64:x86_64|x86_64:amd64|arm64:arm64) ;;
+            *) echo "::error::expected ${{ matrix.arch }}, got $m"; exit 1 ;;
+          esac
+
+      - name: Write the version into the app
+        run: |
+          printf '# Written by the release workflow from the version tag.\n__version__ = "%s"\nAPP_VERSION = "%s"\n' "$VERSION" "$VERSION" > okrdrum/version.py
+          cat okrdrum/version.py
+
+      - name: Install Python packages
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Self-test from source
+        run: python okr_drum.py --selftest selftest-source.txt || (cat selftest-source.txt; exit 1)
+
+      - name: Build the app with PyInstaller
+        run: pyinstaller install/okr_drum.spec --noconfirm
+
+      - name: Self-test the built app (Windows)
+        if: runner.os == 'Windows'
+        run: python install/run_selftest.py dist/OKR-Drum/OKR-Drum.exe "$VERSION"
+
+      - name: Self-test the built app (macOS)
+        if: runner.os == 'macOS'
+        run: python install/run_selftest.py dist/OKR-Drum.app "$VERSION"
+
+      - name: Windows installer (Inno Setup)
+        if: runner.os == 'Windows'
+        run: |
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$ISCC" ]; then choco install innosetup -y --no-progress; fi
+          "$ISCC" "/DMyVersion=$VERSION" install/okr_drum.iss
+          ls -l dist
+
+      - name: Install it and self-test the installed app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = "dist\OKR-Drum-$env:VERSION-Windows-setup.exe"
+          $dir = "$env:LOCALAPPDATA\Programs\OKR Drum"
+          Start-Process -FilePath $setup -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER","/DIR=`"$dir`"" -Wait
+          if (-not (Test-Path "$dir\OKR-Drum.exe")) { throw "not installed to $dir" }
+          if (-not (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\OKR Drum\OKR Drum.lnk")) { throw "no Start menu shortcut" }
+          python install/run_selftest.py "$dir\OKR-Drum.exe" "$env:VERSION"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: macOS installer (pkg into /Applications)
+        if: runner.os == 'macOS'
+        run: |
+          PKGV="$(echo "$VERSION" | grep -oE '^[0-9]+(\.[0-9]+)*')"
+          rm -rf pkgroot && mkdir pkgroot
+          ditto dist/OKR-Drum.app pkgroot/OKR-Drum.app
+          pkgbuild --analyze --root pkgroot component.plist
+          plutil -replace 0.BundleIsRelocatable -bool NO component.plist
+          pkgbuild --root pkgroot --component-plist component.plist \
+            --identifier io.github.jerjely.okrdrum --version "$PKGV" \
+            --install-location /Applications "dist/OKR-Drum-$VERSION-${{ matrix.label }}.pkg"
+          ls -l dist
+
+      - name: Install it and self-test the installed app (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          sudo installer -pkg "dist/OKR-Drum-$VERSION-${{ matrix.label }}.pkg" -target /
+          test -d /Applications/OKR-Drum.app
+          python install/run_selftest.py /Applications/OKR-Drum.app "$VERSION"
+
+      - name: Check the file name
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then f="dist/OKR-Drum-$VERSION-Windows-setup.exe"; else f="dist/OKR-Drum-$VERSION-${{ matrix.label }}.pkg"; fi
+          test -f "$f" || { echo "::error::missing $f"; ls dist; exit 1; }
+          mkdir -p upload && cp "$f" upload/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.label }}
+          path: upload/*
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest-${{ matrix.label }}
+          path: selftest-source.txt
+          if-no-files-found: ignore
+
+  raspberry-pi:
+    needs: version
     runs-on: ubuntu-latest
     env:
-      QT_QPA_PLATFORM: offscreen
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v5
-        with:
-          name: release-zips
-          path: zips
-      - name: System libraries for OpenGL under a virtual display
+      - uses: actions/checkout@v4
+      - name: Build the .deb
+        run: bash tools/build_deb.sh "$VERSION" upload
+      - name: Inspect it
         run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libglu1-mesa libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.10'
-      - name: Install PsychoPy and the Stimulus requirements
+          dpkg-deb -I "upload/OKR-Drum-$VERSION-RaspberryPi.deb"
+          dpkg-deb -c "upload/OKR-Drum-$VERSION-RaspberryPi.deb"
+      - name: Self-test the packaged recorder (PyQt5, simulated camera and serial)
         run: |
-          python -m zipfile -e zips/$APP-*-Stimulus.zip built
-          python -m pip install --upgrade pip
-          python -m pip install -r built/$APP-Stimulus/requirements.txt
-      - name: Run two gratings and check what was drawn
-        run: xvfb-run -a -s "-screen 0 1280x1024x24" python built/$APP-Stimulus/okr_gui_experiment.py --selftest --render
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-pyqt5 python3-opencv python3-numpy python3-serial xvfb
+          dpkg-deb -x "upload/OKR-Drum-$VERSION-RaspberryPi.deb" pkg
+          test "$(python3 pkg/usr/lib/okr-recorder/run.py --version)" = "$VERSION"
+          xvfb-run -a python3 pkg/usr/lib/okr-recorder/run.py --selftest
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-RaspberryPi
+          path: upload/*.deb
+          if-no-files-found: error
+
+  hardware:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Zip the drum drawings
+        run: |
+          mkdir -p upload
+          cd hardware && zip -r "../upload/OKR-Drum-$VERSION-Hardware.zip" . -x '.*'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: installer-Hardware
+          path: upload/*.zip
+          if-no-files-found: error
 
   release:
-    name: Publish release
-    needs: [build, selftest, render-test]
-    if: needs.build.outputs.release == 'true'
+    needs: [version, desktop, raspberry-pi, hardware]
+    if: needs.version.outputs.release == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
+      VERSION: ${{ needs.version.outputs.version }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      VERSION: ${{ needs.build.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v5
+      - uses: actions/download-artifact@v4
         with:
-          name: release-zips
-          path: zips
-      - name: Release notes
-        shell: bash
+          pattern: installer-*
+          path: out
+          merge-multiple: true
+      - name: Check all files are there
         run: |
-          cat > notes.md <<EOF
-          ## $APP_TITLE $VERSION
+          ls -l out
+          for f in "OKR-Drum-$VERSION-Windows-setup.exe" "OKR-Drum-$VERSION-macOS-AppleSilicon.pkg" \
+                   "OKR-Drum-$VERSION-macOS-Intel.pkg" "OKR-Drum-$VERSION-RaspberryPi.deb" \
+                   "OKR-Drum-$VERSION-Hardware.zip"; do
+            test -f "out/$f" || { echo "::error::missing $f"; exit 1; }
+          done
+      - name: Release notes
+        run: |
+          cat > notes.md <<NOTES
+          ## OKR Drum $VERSION
 
-          Four-monitor optokinetic drum: warped drifting gratings on the lab PC, IR camera
-          recording with trial sync on a Raspberry Pi, and lens calibration for tracking.
-
-          | Download | Where it goes |
+          | File | For |
           |---|---|
-          | \`$APP-$VERSION-Stimulus.zip\` | Lab PC (Windows or Mac) that drives the four monitors. Needs Miniconda; \`install_windows.bat\` / \`install_mac.command\` installs PsychoPy into a conda env and adds a Start-menu entry. |
-          | \`$APP-$VERSION-RaspberryPi.zip\` | Raspberry Pi with the camera: \`bash install_pi.sh\`, then run \`okr_record_pi.py\` in Thonny. |
-          | \`$APP-$VERSION-Analysis.zip\` | Any PC: lens calibration and DeepLabCut → cm conversion. |
-          | \`$APP-$VERSION-Hardware.zip\` | Build drawing (A3, 1:5) and wiring notes. |
+          | \`OKR-Drum-$VERSION-Windows-setup.exe\` | Windows 10/11 (stimulus PC and analysis) |
+          | \`OKR-Drum-$VERSION-macOS-AppleSilicon.pkg\` | Mac with an M-series chip |
+          | \`OKR-Drum-$VERSION-macOS-Intel.pkg\` | Mac with an Intel chip |
+          | \`OKR-Drum-$VERSION-RaspberryPi.deb\` | Raspberry Pi camera recorder |
+          | \`OKR-Drum-$VERSION-Hardware.zip\` | Drum drawings and parts |
 
-          PsychoPy, Miniconda and the Raspberry Pi packages are not bundled; the install scripts fetch them.
+          ### Opening the installers (they are not signed)
+          - **Windows:** if SmartScreen says "Windows protected your PC", click **More info → Run anyway**. It installs for your user only; no admin rights needed.
+          - **Mac:** if macOS says the package can't be opened, go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**, then open the .pkg again. The app goes into Applications.
+          - **Raspberry Pi:** \`sudo apt install ./OKR-Drum-$VERSION-RaspberryPi.deb\`, then once \`sudo okr-recorder-setup\` and reboot.
 
-          **The scripts are not signed.**
-          - Windows: if SmartScreen stops a \`.bat\`, click **More info → Run anyway**.
-          - Mac: if a \`.command\` is blocked, open **System Settings → Privacy & Security** and click **Open Anyway**.
-
-          Every part passed its self-test on Windows, macOS (Apple silicon and Intel) and Linux before this release.
-          EOF
+          DeepLabCut (its own conda environment), rclone and Google Drive for desktop are installed separately; see the README.
+          NOTES
           cat notes.md
-      - name: Create or update the release
-        shell: bash
+      - name: Publish the release
         run: |
           TAG="v$VERSION"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" zips/*.zip --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" out/* --clobber --repo "$GITHUB_REPOSITORY"
             gh release edit "$TAG" --notes-file notes.md --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" zips/*.zip --repo "$GITHUB_REPOSITORY" \
-              --title "$APP_TITLE $VERSION" --notes-file notes.md --target "$GITHUB_SHA"
+            gh release create "$TAG" out/* --title "OKR Drum $VERSION" --notes-file notes.md \
+              --target "$GITHUB_SHA" --repo "$GITHUB_REPOSITORY"
           fi

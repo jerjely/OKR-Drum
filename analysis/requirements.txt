@@ -1,4 +1,0 @@
-# Camera calibration / DeepLabCut post-processing (any Python 3.9+ environment)
-numpy
-opencv-python
-pandas
