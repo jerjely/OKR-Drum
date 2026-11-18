@@ -16,10 +16,43 @@ import sys
 import tempfile
 
 
+def _window_check(app, timeout=10.0):
+    """Open the real stimulus window (the code path a run uses), let it draw, read the image back."""
+    import time
+    import numpy as np
+    from PySide6 import QtGui
+    from .geometry import Rig
+    from .protocol import build_trials
+    from .renderer import GLStimWindow, StimState
+    st = StimState(Rig())
+    st.start_grating(build_trials({"bar_width": {"value": 5.0}})[0], t0=time.perf_counter())
+    w = GLStimWindow(st)
+    frames = []
+    w.log.frame.connect(frames.append)
+    w.resize(512, 256)
+    w.show()
+    t0 = time.time()
+    while len(frames) < 30 and time.time() - t0 < timeout:
+        app.processEvents()
+        time.sleep(0.002)
+    img = w.grabFramebuffer().convertToFormat(QtGui.QImage.Format_Grayscale8)
+    name = w.renderer_name
+    w.close()
+    app.processEvents()
+    ok_img = False
+    if not img.isNull() and img.width() > 0:
+        a = np.array(img.constBits(), np.uint8).reshape(img.height(), img.bytesPerLine())[:, :img.width()]
+        ok_img = int(a.min()) < 40 and int(a.max()) > 215
+    dt = np.diff(frames) * 1000 if len(frames) > 2 else []
+    return [len(frames) >= 30 and ok_img,
+            "stimulus window draws the grating on screen (%d frames%s)" % (
+                len(frames), ", %.1f ms per frame" % float(np.median(dt)) if len(dt) else "")], name
+
+
 def _checks():
     """Runs in the child. Returns the renderer name and the shader checks."""
-    from PySide6 import QtGui
-    app = QtGui.QGuiApplication.instance() or QtGui.QGuiApplication(sys.argv[:1])  # noqa: F841
+    from PySide6 import QtWidgets
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication(sys.argv[:1])
     from .geometry import Rig
     from .protocol import build_trials
     from .renderer import StimState, check_against_numpy, render_offscreen
@@ -36,6 +69,9 @@ def _checks():
     st.mode = 3
     img, _ = render_offscreen(st, 1024, 768)
     checks.append([img is not None and check_against_numpy(img, st, 0) > 0.99, "shader alignment lines"])
+    if all(c[0] for c in checks):
+        chk, wname = _window_check(app)
+        checks.append(chk)
     ok = all(c[0] for c in checks)
     return {"ok": ok, "name": name, "checks": checks, "reason": "" if ok else "shader output wrong"}
 
@@ -66,6 +102,9 @@ def probe(timeout=90, refresh=False):
     """{'ok': bool, 'name': renderer, 'checks': [...], 'reason': why not} - checked once per run."""
     global _RESULT
     if _RESULT is not None and not refresh:
+        return _RESULT
+    if os.environ.get("OKR_DRUM_RENDERER", "").lower() == "cpu":
+        _RESULT = {"ok": False, "reason": "CPU renderer chosen with OKR_DRUM_RENDERER=cpu"}
         return _RESULT
     fd, out = tempfile.mkstemp(prefix="okr_glprobe_", suffix=".json")
     os.close(fd)

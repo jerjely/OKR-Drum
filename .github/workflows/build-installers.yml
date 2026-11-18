@@ -92,7 +92,7 @@ jobs:
           pip install -r requirements.txt pyinstaller
 
       - name: Self-test from source
-        run: python okr_drum.py --selftest selftest-source.txt || (cat selftest-source.txt; exit 1)
+        run: python okr_drum.py --selftest selftest-source.txt || (cat selftest-source.txt; echo '---- crash trace ----'; cat selftest-source.txt.crash.txt; exit 1)
 
       - name: Build the app with PyInstaller
         run: pyinstaller install/okr_drum.spec --noconfirm
@@ -161,7 +161,7 @@ jobs:
         if: always()
         with:
           name: selftest-${{ matrix.label }}
-          path: selftest-source.txt
+          path: selftest-source.txt*
           if-no-files-found: ignore
 
   raspberry-pi:
