@@ -150,12 +150,35 @@ def set_windows_app_id():
             pass
 
 
+def _crash_log(argv):
+    """A crash inside Qt/OpenGL/a driver kills the process without a Python error. faulthandler
+    writes where it happened to a file (the self-test report's name + .crash.txt, or
+    ~/.okrdrum/crash.txt) so it can be found afterwards."""
+    import faulthandler
+    try:
+        if "--selftest" in argv:
+            i = argv.index("--selftest")
+            out = argv[i + 1] if len(argv) > i + 1 and not argv[i + 1].startswith("--") else "selftest.txt"
+            path = os.path.abspath(out) + ".crash.txt"
+        else:
+            os.makedirs(SETTINGS_DIR, exist_ok=True)
+            path = os.path.join(SETTINGS_DIR, "crash.txt")
+        _crash_log.f = open(path, "w", encoding="utf-8")
+        faulthandler.enable(_crash_log.f, all_threads=True)
+    except Exception:
+        pass
+
+
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
     if sys.stdout is None:          # windowed build on Windows has no console
         sys.stdout = open(os.devnull, "w")
     if sys.stderr is None:
         sys.stderr = open(os.devnull, "w")
+    if "--gl-probe" in argv:
+        from ..glprobe import child_main
+        return child_main(argv[argv.index("--gl-probe") + 1])
+    _crash_log(argv)
     if "--version" in argv:
         print(__version__)
         return 0

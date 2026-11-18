@@ -284,23 +284,13 @@ class CPUStimWindow(QtWidgets.QWidget):
         self.key_handler(ev) if hasattr(self, "key_handler") else None
 
 
-_GL_OK = None
-
-
 def gl_works():
-    """True if this computer's OpenGL compiles and runs the stimulus shader correctly (checked once)."""
-    global _GL_OK
-    if _GL_OK is None:
-        try:
-            st = StimState(Rig())
-            from .protocol import build_trials
-            st.start_grating(build_trials({"bar_width": {"value": 5.0}})[0], t0=0.0)
-            img, why = render_offscreen(st, 256, 32, now=0.4)
-            _GL_OK = img is not None and check_against_numpy(img, st, 0.4) > 0.98
-            gl_works.reason = "" if _GL_OK else (why if img is None else "shader output wrong")
-        except Exception as e:
-            _GL_OK, gl_works.reason = False, str(e)
-    return _GL_OK
+    """True if this computer's OpenGL draws the stimulus shader correctly. Tested once, in a
+    separate process, so a bad graphics driver cannot crash the app."""
+    from .glprobe import probe
+    res = probe()
+    gl_works.reason = res.get("reason", "")
+    return bool(res.get("ok"))
 
 
 gl_works.reason = ""

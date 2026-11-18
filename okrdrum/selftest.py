@@ -25,10 +25,19 @@ class Log:
     def __init__(self, path):
         self.path = path
         self.lines, self.fails, self.notes = [], [], []
+        self.f = open(path, "w", encoding="utf-8")    # written line by line: a crash still leaves a report
 
     def w(self, s):
         self.lines.append(s)
-        print(s, flush=True)
+        try:
+            self.f.write(s + "\n")
+            self.f.flush()
+        except Exception:
+            pass
+        try:
+            print(s, flush=True)
+        except Exception:
+            pass
 
     def check(self, cond, msg):
         self.w(("  ok    " if cond else "  FAIL  ") + msg)
@@ -40,6 +49,10 @@ class Log:
         self.notes.append(msg)
 
     def save(self):
+        try:
+            self.f.close()
+        except Exception:
+            pass
         with open(self.path, "w", encoding="utf-8") as f:
             f.write("\n".join(self.lines) + "\n")
 
@@ -124,26 +137,21 @@ def _protocol(log):
 def _renderer(log):
     from .geometry import Rig
     from .protocol import build_trials
-    from .renderer import StimState, check_against_numpy, render_offscreen
+    from .renderer import StimState
     log.w("[renderer]")
     st = StimState(Rig())
     st.start_grating(build_trials({"bar_width": {"value": 2.5}})[0], t0=10.0)
     row = st.cpu_row(1024, now=11.0)
     log.check(row.min() == 0 and row.max() == 1, "CPU renderer draws a full-contrast grating")
-    img, name = render_offscreen(st, 1024, 768, now=11.0)
-    if img is None:
-        log.note("OpenGL not available on this machine (%s): shader not checked; the app will fall back to the "
-                 "CPU renderer here" % name)
+    from .glprobe import probe
+    res = probe()
+    if not res.get("checks"):
+        log.note("OpenGL not usable on this machine (%s): shader not checked; the app uses the CPU renderer "
+                 "here" % res.get("reason"))
         return
-    log.w("  OpenGL renderer: %s" % name)
-    log.check(check_against_numpy(img, st, 11.0) > 0.995, "shader grating = numpy grating (moving, warped)")
-    st.mode, st.level = 2, 0.37
-    st.rig.gamma = 2.2
-    img, _ = render_offscreen(st, 640, 480)
-    log.check(check_against_numpy(img, st, 0) > 0.99, "shader flat level with gamma 2.2")
-    st.mode = 3
-    img, _ = render_offscreen(st, 1024, 768)
-    log.check(check_against_numpy(img, st, 0) > 0.99, "shader alignment lines")
+    log.w("  OpenGL renderer: %s (tested in a separate process)" % res.get("name"))
+    for ok, msg in res["checks"]:
+        log.check(ok, msg)
 
 
 def _runner(log, app, tmp):
