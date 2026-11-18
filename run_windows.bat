@@ -1,4 +1,8 @@
 @echo off
 cd /d "%~dp0"
-call .venv\Scripts\activate.bat
-start "" pythonw okr_drum.py
+if not exist ".venv\Scripts\pythonw.exe" (
+    echo OKR Drum is not installed yet - run install_windows.bat first.
+    pause
+    exit /b 1
+)
+start "" ".venv\Scripts\pythonw.exe" okr_drum.py
