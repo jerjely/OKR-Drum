@@ -132,6 +132,15 @@ def probe(timeout=90, refresh=False):
             os.remove(out)
         except OSError:
             pass
+    # Software OpenGL (no graphics driver, e.g. remote desktop or build machines) is slow, not locked to the
+    # display refresh and is where crashes happen; the CPU renderer is safer there.
+    soft = any(k in str(res.get("name", "")).lower()
+               for k in ("llvmpipe", "softpipe", "gdi generic", "basic render", "swiftshader"))
+    res["software"] = soft
+    if soft and res.get("ok") and os.environ.get("OKR_DRUM_RENDERER", "").lower() != "opengl":
+        res["ok"] = False
+        res["reason"] = ("only software OpenGL here (%s) - using the CPU renderer; install the graphics card "
+                         "driver, or set OKR_DRUM_RENDERER=opengl to use it anyway" % res.get("name"))
     _RESULT = res
     return res
 

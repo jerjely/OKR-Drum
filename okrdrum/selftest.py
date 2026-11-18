@@ -152,6 +152,8 @@ def _renderer(log):
     log.w("  OpenGL renderer: %s (tested in a separate process)" % res.get("name"))
     for ok, msg in res["checks"]:
         log.check(ok, msg)
+    if res.get("software") and not res.get("ok"):
+        log.note("software OpenGL only (no graphics driver): runs here use the CPU renderer")
 
 
 def _runner(log, app, tmp):

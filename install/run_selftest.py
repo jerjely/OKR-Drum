@@ -35,6 +35,10 @@ def main():
     t = time.time()
     p = subprocess.run([exe, "--selftest", out], timeout=1800)
     print("self-test took %.0f s, exit code %d (0x%08X)" % (time.time() - t, p.returncode, p.returncode & 0xFFFFFFFF))
+    if not os.path.exists(crash):
+        print("(no crash-trace file was created)")
+    elif not os.path.getsize(crash):
+        print("(crash-trace file is empty)")
     if os.path.exists(crash) and os.path.getsize(crash):
         print("---- crash trace (faulthandler) ----")
         with open(crash, encoding="utf-8", errors="replace") as f:
