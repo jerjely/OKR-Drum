@@ -107,11 +107,13 @@ jobs:
 
       - name: Windows installer (Inno Setup)
         if: runner.os == 'Windows'
+        shell: pwsh          # not Git Bash: it would turn /DMyVersion=... into a file path
         run: |
-          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
-          if [ ! -f "$ISCC" ]; then choco install innosetup -y --no-progress; fi
-          "$ISCC" "/DMyVersion=$VERSION" install/okr_drum.iss
-          ls -l dist
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DMyVersion=$env:VERSION" "install\okr_drum.iss"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-ChildItem dist
 
       - name: Install it and self-test the installed app (Windows)
         if: runner.os == 'Windows'
