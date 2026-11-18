@@ -92,8 +92,12 @@ class Runner(QtCore.QObject):
             return
         if name == "escape":
             self.stop("stopped by the operator")
-        elif name == "space" and self.phase == "wait":
+        elif name == "space" and self.phase in ("wait", "iti") and self.p["wait_for_key"]:
+            # during the grey the press is remembered: the grating starts as soon as the grey ends
             self._begin_stim_next_frame = True
+            if self.phase == "iti":
+                left = max(0.0, self.p["iti"] - (time.perf_counter() - self.phase_t0))
+                self.status.emit("Trial %d starts after the grey (%.1f s)" % (self.cur["trial"], left))
         elif name in ("y", "n") and self.phase == "respond":
             self.cur["response"] = "yes" if name == "y" else "no"
             self.stair.respond(name == "y")
@@ -145,7 +149,8 @@ class Runner(QtCore.QObject):
         self.status.emit("Trial %d  %s c=%g  %.3f deg  %g deg/s  %s" % (
             self.cur["trial"], self.cur["staircase"] or "", self.cur["contrast"],
             self.cur["bar_width_used_deg"], self.cur["speed_deg_s"], self.cur["direction"])
-            + ("  - grey..." if self.phase == "iti" else "  - SPACE to start"))
+            + ("  - grey %g s%s" % (self.p["iti"], ", then SPACE" if self.p["wait_for_key"] else "")
+               if self.phase == "iti" else "  - SPACE to start"))
 
     def _before_draw(self, now):
         if not self.running:

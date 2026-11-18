@@ -101,7 +101,13 @@ QAbstractSpinBox::up-arrow {{ image: url(@UP@); width: 8px; height: 5px; }}
 QAbstractSpinBox::down-arrow {{ image: url(@DOWN@); width: 8px; height: 5px; }}
 QAbstractSpinBox::up-arrow:disabled {{ image: url(@UPD@); }}
 QAbstractSpinBox::down-arrow:disabled {{ image: url(@DOWND@); }}
+QComboBox {{ combobox-popup: 0; }}
 QComboBox::drop-down {{ border: none; width: 22px; }}
+QComboBox QAbstractItemView {{ background: white; color: {TEXT}; border: 1px solid #c9d3e0; outline: 0;
+    selection-background-color: {ACCENT}; selection-color: white; }}
+QComboBox QAbstractItemView::item {{ min-height: 22px; padding: 2px 6px; color: {TEXT}; background: white; }}
+QComboBox QAbstractItemView::item:hover, QComboBox QAbstractItemView::item:selected {{
+    background: {ACCENT}; color: white; }}
 QComboBox::down-arrow {{ image: url(@DOWN@); width: 8px; height: 5px; }}
 QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus, QComboBox:focus {{ border-color: {ACCENT}; }}
 QTableWidget, QTableView, QListWidget, QTreeWidget {{ background: white; border: 1px solid {LINE};

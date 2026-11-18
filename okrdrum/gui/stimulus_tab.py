@@ -172,11 +172,8 @@ class StimulusTab(QtWidgets.QWidget):
         v.addLayout(h)
         right.addWidget(g, 1)
         self.last_csv = None
+        self._keys = _RunKeys(self._key)      # SPACE / ESC / Y / N work in every window while a run is on
         self._set_running(False)
-        for key, name in (("Space", "space"), ("Escape", "escape"), ("Y", "y"), ("N", "n")):
-            sc = QtGui.QShortcut(QtGui.QKeySequence(key), self)
-            sc.setContext(QtCore.Qt.WidgetWithChildrenShortcut)
-            sc.activated.connect(lambda n=name: self._key(n))
 
     # ------------------------------------------------------------------ protocol <-> widgets
     def protocol(self):
@@ -344,6 +341,14 @@ class StimulusTab(QtWidgets.QWidget):
 
     def _set_running(self, on):
         stair = self.mode.currentIndex() == 1
+        app = QtWidgets.QApplication.instance()
+        if on:
+            app.installEventFilter(self._keys)
+            fw = app.focusWidget()
+            if fw is not None:
+                fw.clearFocus()             # so SPACE can't land in a text box
+        else:
+            app.removeEventFilter(self._keys)
         self.start_btn.setEnabled(not on)
         for b in (self.next_btn, self.stop_btn):
             b.setEnabled(on)
@@ -386,3 +391,29 @@ class StimulusTab(QtWidgets.QWidget):
                                                        "" if v["done"] else " (not finished)", v["trials"])
                 for k, v in res.items()))
         self.run_finished.emit(path)
+
+
+class _RunKeys(QtCore.QObject):
+    """Application-wide key catcher used only while a run is going: the run keys then work whether
+    the main window, the stimulus window or any field has the focus (a focused button or spin box
+    would otherwise take SPACE)."""
+    KEYS = {QtCore.Qt.Key_Space: "space", QtCore.Qt.Key_Escape: "escape", QtCore.Qt.Key_Y: "y",
+            QtCore.Qt.Key_N: "n"}
+
+    def __init__(self, callback):
+        super().__init__()
+        self.callback = callback
+
+    def eventFilter(self, obj, ev):
+        t = ev.type()
+        if t in (QtCore.QEvent.KeyPress, QtCore.QEvent.ShortcutOverride) and ev.key() in self.KEYS \
+                and not (ev.modifiers() & (QtCore.Qt.ControlModifier | QtCore.Qt.AltModifier | QtCore.Qt.MetaModifier)):
+            if QtWidgets.QApplication.activeModalWidget() is not None or QtWidgets.QApplication.activePopupWidget():
+                return False
+            if t == QtCore.QEvent.ShortcutOverride:
+                ev.accept()                 # keep menus/buttons from treating it as a shortcut
+                return True
+            if not ev.isAutoRepeat():
+                self.callback(self.KEYS[ev.key()])
+            return True
+        return False

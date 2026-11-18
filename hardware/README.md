@@ -15,7 +15,7 @@ all wood and monitor dimensions are unchanged.
   42.7 cm square arena with one ~1.6 cm bezel seam per corner (felt pads at contacts).
 - **Wood:** base box 55.8 × 55.8 cm, 10 cm high; four 20 × 40 cm support strips (open sides
   for cooling), glued and screwed over the base sides, 2 steel L-brackets each.
-- **Pedestal:** Ø 5 cm, 12.5 cm high (eye at mid-screen, 24.5 cm above the bench); matte grey.
+- **Pedestal:** Ø 5 cm, 12.5 cm high (eye at mid-screen, 24.5 cm above the bench); matte grey. A 3D-printable version is in [pedestal/](pedestal/).
 - **Optional mirror top:** four 24.1 × 22.6 cm acrylic-mirror pieces in a pinwheel with a
   centre camera hole; optional floor mirror 42.5 × 42.5 cm with a matte grey disc (~20 cm).
 
