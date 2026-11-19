@@ -39,7 +39,7 @@ These are not in the installers because they depend on drivers, GPUs or accounts
 - **DeepLabCut** in its own conda environment, used only for analysis. Train the model wherever you like. In the Analyze tab, point the app at that environment's Python (**Find** looks in the usual Miniconda/Anaconda places) and at the project's `config.yaml`. You can also bring a DLC `.h5`/`.csv` you made elsewhere.
 - **USB-to-TTL serial adapter** (e.g. CH340/CH341, 3.3 V) from the stimulus PC to the Pi's GPIO 14/15 (TX→RX, RX→TX, GND→GND). On Windows, install the adapter's driver if it doesn't appear in the port list.
 - **Google Drive sharing** (optional):
-  - On the Pi: `rclone config` once (as your normal user) to make a remote called `gdrive`, then tick **upload every recording when it stops** in the recorder. Recordings go to `gdrive:OKR Drum/recordings/<date>/`, with a retry queue if the network drops. OneDrive also works through rclone.
+  - On the Pi: `rclone config` once (as your normal user) to make a remote called `gdrive`, then tick **upload when recording stops** in the recorder. Recordings go to `gdrive:OKR Drum/recordings/<date>/`, with a retry queue if the network drops. OneDrive also works through rclone.
   - On the PC: install **Google Drive for desktop**, set the stimulus logs folder inside the Drive folder, and point the Project tab's **Inbox** at it. New recordings are paired with their stimulus logs automatically.
 - A Raspberry Pi **HQ camera** with an IR-capable lens and IR lighting, and the four monitors set up as one extended desktop (see [hardware/](hardware/)).
 
@@ -47,7 +47,7 @@ These are not in the installers because they depend on drivers, GPUs or accounts
 
 1. **Rig tab** (once per setup): enter the monitor geometry, show the alignment pattern and line up the screens, then measure the gamma with a photometer.
 2. **Tools → Camera calibration** (once per camera position): photograph a checkerboard for the lens, click the pedestal rim for scale, and click two wall points for orientation.
-3. **Stimulus tab**: enter the animal and treatment, choose the protocol, pick the serial port and press **Start run**. The Pi fills in the same session details and, if **start/stop recording with the lab PC's run** is ticked, records the run by itself.
+3. **Stimulus tab**: enter the animal and treatment, choose the protocol, pick the serial port and press **Start run**. The Pi fills in the same session details and, if **record with the lab PC's run** is ticked, records the run by itself.
 4. **Analyze tab**: open the Pi video. The stimulus log, frame times, markers and calibration are found next to it. Run DeepLabCut, then **Analyze**. Check the **Sync check** tab, then save the CSVs, PDF report or an overlay video.
 5. **Project / Results**: collect sessions by animal, treatment and group, compare tuning curves and thresholds, and export everything.
 

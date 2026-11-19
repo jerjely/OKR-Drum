@@ -199,7 +199,7 @@ class ProjectTab(QtWidgets.QWidget):
         self.main.analyze_tab.set_files(video=a(rec.get("video")), stim_csv=a(rec.get("stim_csv")),
                                         frames_csv=a(rec.get("frames_csv")), markers_csv=a(rec.get("markers_csv")),
                                         dlc_file=a(rec.get("dlc_file")), calibration=a(rec.get("calibration")))
-        self.main.tabs.setCurrentWidget(self.main.analyze_tab)
+        self.main.show_tab(self.main.analyze_tab)
 
     def analyse_all(self):
         recs = [self.project.session(i) for i in (self._selected() or [s["id"] for s in self.project.data["sessions"]])]

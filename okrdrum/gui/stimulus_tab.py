@@ -126,14 +126,16 @@ class StimulusTab(QtWidgets.QWidget):
         left.addStretch(1)
 
         g = QtWidgets.QGroupBox("Sync to the Raspberry Pi")
-        h = QtWidgets.QHBoxLayout(g)
+        h = QtWidgets.QGridLayout(g)
         self.port = QtWidgets.QComboBox()
-        h.addWidget(self.port, 1)
-        h.addWidget(theme.button("Refresh", slot=self._ports))
-        h.addWidget(theme.button("Send test marker", slot=self._test_marker,
-                                 tip="Sends 'T0 test' and 'E0' - the Pi recorder shows them live"))
+        self.port.setMinimumContentsLength(12)
+        self.port.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        h.addWidget(self.port, 0, 0, 1, 3)
+        h.addWidget(theme.button("Refresh ports", slot=self._ports), 1, 0)
+        h.addWidget(theme.button("Test marker", slot=self._test_marker,
+                                 tip="Sends 'T0 test' and 'E0' - the Pi recorder shows them live"), 1, 1)
         h.addWidget(theme.button("Send session info", slot=self._send_info,
-                                 tip="Animal, session, treatment and date to the Pi recorder (also sent at every run start)"))
+                                 tip="Animal, session, treatment and date to the Pi recorder (also sent at every run start)"), 1, 2)
         right.addWidget(g)
         self._ports()
 
@@ -141,7 +143,7 @@ class StimulusTab(QtWidgets.QWidget):
         v = QtWidgets.QVBoxLayout(g)
         h = QtWidgets.QHBoxLayout()
         self.start_btn = theme.button("Start run", "primary", self.start)
-        self.next_btn = theme.button("Start trial  (SPACE)", slot=lambda: self.runner.key("space"))
+        self.next_btn = theme.button("Trial  (SPACE)", slot=lambda: self.runner.key("space"))
         self.stop_btn = theme.button("Stop  (ESC)", "danger", lambda: self.runner.key("escape"))
         for b in (self.start_btn, self.next_btn, self.stop_btn):
             h.addWidget(b)
@@ -156,9 +158,17 @@ class StimulusTab(QtWidgets.QWidget):
         self.state_lbl.setProperty("h2", True)
         self.state_lbl.setWordWrap(True)
         v.addWidget(self.state_lbl)
+        self.display_lbl = QtWidgets.QLabel("")       # live: is the stimulus window really drawing?
+        self.display_lbl.setWordWrap(True)
+        v.addWidget(self.display_lbl)
+        self._disp_timer = QtCore.QTimer(self)
+        self._disp_timer.timeout.connect(self._update_display)
         self.table = QtWidgets.QTableWidget(0, 7)
-        self.table.setHorizontalHeaderLabels(["#", "c/deg", "contrast", "deg/s", "dir", "dropped", "answer"])
+        self.table.setHorizontalHeaderLabels(["#", "c/deg", "contr.", "deg/s", "dir", "drops", "Y/N"])
         self.table.verticalHeader().setVisible(False)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QtWidgets.QHeaderView.Stretch)      # columns share the width: no side scrolling
+        hh.setMinimumSectionSize(36)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         v.addWidget(self.table, 1)
         self.result_lbl = QtWidgets.QLabel("")
@@ -339,6 +349,20 @@ class StimulusTab(QtWidgets.QWidget):
             return
         self._set_running(True)
 
+    def _update_display(self):
+        r = getattr(self, "runner", None)
+        if r is None or not r.running:
+            return
+        fps, name = r.display_rate()
+        if fps < 1:
+            self.display_lbl.setText("<span style='color:#c0392b'><b>Stimulus window NOT drawing</b></span> - "
+                                     "covered, minimised or on a missing screen? The run goes on the clock, "
+                                     "but nothing is shown and no frames are counted.")
+        else:
+            col = "#2e8b57" if fps > 0.8 * r.refresh else "#d68910"
+            self.display_lbl.setText("<span style='color:%s'>Stimulus window drawing at %.0f Hz</span> "
+                                     "(%s)" % (col, fps, name))
+
     def _set_running(self, on):
         stair = self.mode.currentIndex() == 1
         app = QtWidgets.QApplication.instance()
@@ -347,8 +371,11 @@ class StimulusTab(QtWidgets.QWidget):
             fw = app.focusWidget()
             if fw is not None:
                 fw.clearFocus()             # so SPACE can't land in a text box
+            self._disp_timer.start(500)
         else:
             app.removeEventFilter(self._keys)
+            self._disp_timer.stop()
+            self.display_lbl.setText("")
         self.start_btn.setEnabled(not on)
         for b in (self.next_btn, self.stop_btn):
             b.setEnabled(on)

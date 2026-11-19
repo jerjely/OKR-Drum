@@ -84,7 +84,37 @@ class Runner(QtCore.QObject):
             place_on_screen(self.win, rig)
         self.running = True
         self._named = False
+        self._last_frame = time.perf_counter()
+        self._stall_warned = False
+        import collections
+        self._recent = collections.deque(maxlen=400)
+        # Watchdog: the run normally advances on every drawn frame. If the stimulus window stops
+        # drawing (covered by another window, minimised, on a screen that isn't there), keep the
+        # run going from the clock and say so, instead of silently freezing.
+        self._watch = QtCore.QTimer(self)
+        self._watch.setTimerType(QtCore.Qt.PreciseTimer)
+        self._watch.timeout.connect(self._watchdog)
+        self._watch.start(10)
         self._next()
+
+    def display_rate(self):
+        """(frames per second actually drawn over the last second, renderer name)."""
+        now = time.perf_counter()
+        n = sum(1 for t in self._recent if now - t <= 1.0)
+        return float(n), getattr(self.win, "renderer_name", "?")
+
+    def _watchdog(self):
+        if not self.running:
+            return
+        now = time.perf_counter()
+        if now - self._last_frame < 0.25:
+            return
+        if not self._stall_warned:
+            self._stall_warned = True
+            self.status.emit("The stimulus window is not drawing (covered, minimised or on a missing screen?) - "
+                             "the run continues on the clock, but nothing is shown and frames are not counted")
+        self._before_draw(now)
+        self._frame(now, real=False)
 
     def key(self, name):
         """space = start trial, escape = stop, y / n = staircase answer."""
@@ -111,6 +141,10 @@ class Runner(QtCore.QObject):
             self._finish_trial(time.perf_counter(), aborted=True)
         self.running = False
         self.phase = "done"
+        try:
+            self._watch.stop()
+        except Exception:
+            pass
         self.fcsv.close()
         if self.stair:
             with open(self.base + "_staircase.json", "w", encoding="utf-8") as f:
@@ -169,11 +203,17 @@ class Runner(QtCore.QObject):
         elif self.phase == "stim" and now - self.phase_t0 >= self.cur["duration_s"]:
             self._finish_trial(now)
 
-    def _frame(self, t):
+    def _frame(self, t, real=True):
+        if real:
+            self._last_frame = time.perf_counter()
+            self._recent.append(self._last_frame)
+            if self._stall_warned:
+                self._stall_warned = False
+                self.status.emit("The stimulus window is drawing again")
         if not getattr(self, "_named", False):
             self._named = True
             self.status.emit("Renderer: %s" % getattr(self.win, "renderer_name", "?"))
-        if self.phase == "stim":
+        if self.phase == "stim" and real:
             self.frame_times.append(t)
         if self.pending_onset:
             self.pending_onset = False

@@ -170,6 +170,7 @@ def form_spin(lo, hi, val, dec=2, step=None, suffix=""):
     if suffix:
         w.setSuffix(" " + suffix)
     w.setKeyboardTracking(False)
+    w.setMinimumWidth(72)          # don't let the range text force wide boxes on small screens
     return w
 
 

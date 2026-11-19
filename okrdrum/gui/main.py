@@ -16,7 +16,10 @@ class MainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.settings = load_settings()
         self.setWindowTitle("%s  %s" % (APP_NAME, __version__))
-        self.resize(1440, 900)
+        scr = QtWidgets.QApplication.primaryScreen()
+        avail = scr.availableGeometry() if scr else QtCore.QRect(0, 0, 1440, 900)
+        self.resize(min(1440, avail.width()), min(900, avail.height() - 30))
+        self._small_screen = avail.width() < 1440 or avail.height() < 900
         from .analyze_tab import AnalyzeTab
         from .project_tab import ProjectTab
         from .results_tab import ResultsTab
@@ -40,15 +43,25 @@ class MainWindow(QtWidgets.QMainWindow):
         self.analyze_tab = AnalyzeTab(self)
         self.results_tab = ResultsTab(self)
         self.project_tab = ProjectTab(self)
+        self._wrap = {}
         for w, name in ((self.stim_tab, "Stimulus"), (self.rig_tab, "Rig"), (self.analyze_tab, "Analyze"),
                         (self.results_tab, "Results"), (self.project_tab, "Project")):
-            self.tabs.addTab(w, name)
+            # each tab scrolls when the screen is smaller than the tab (e.g. a 1024 x 768 stimulus PC)
+            sa = QtWidgets.QScrollArea()
+            sa.setWidget(w)
+            sa.setWidgetResizable(True)
+            sa.setFrameShape(QtWidgets.QFrame.NoFrame)
+            self._wrap[w] = sa
+            self.tabs.addTab(sa, name)
         self.analyze_tab.analysed.connect(self.results_tab.set_session)
         self.project_tab.changed.connect(self._project_changed)
         self.stim_tab.run_finished.connect(lambda p: self.analyze_tab.stim.set(p))
         self._menus()
         self.statusBar().showMessage("Ready")
         self._project_changed()
+
+    def show_tab(self, w):
+        self.tabs.setCurrentWidget(self._wrap.get(w, w))
 
     def _menus(self):
         mb = self.menuBar()
@@ -66,9 +79,9 @@ class MainWindow(QtWidgets.QMainWindow):
         m.addAction("Close drum pattern", self.rig_tab.close_pattern)
         m.addSeparator()
         m.addAction("Sync check of the current session", self._sync)
-        m.addAction("Find DeepLabCut environments", lambda: (self.tabs.setCurrentWidget(self.analyze_tab),
+        m.addAction("Find DeepLabCut environments", lambda: (self.show_tab(self.analyze_tab),
                                                              self.analyze_tab._find_envs()))
-        m.addAction("Load demo session (synthetic)", lambda: (self.tabs.setCurrentWidget(self.analyze_tab),
+        m.addAction("Load demo session (synthetic)", lambda: (self.show_tab(self.analyze_tab),
                                                               self.analyze_tab.demo()))
         m = mb.addMenu("Help")
         m.addAction("About OKR Drum", self.about)
@@ -76,7 +89,7 @@ class MainWindow(QtWidgets.QMainWindow):
         m.addAction("Open settings folder", lambda: show_in_folder(SETTINGS_DIR))
 
     def _sync(self):
-        self.tabs.setCurrentWidget(self.analyze_tab)
+        self.show_tab(self.analyze_tab)
         self.analyze_tab.sync_check()
 
     def _project_changed(self):
@@ -204,7 +217,10 @@ def main(argv=None):
             __import__(mod)
         splash.step("Opening the window…", 0.95)
     w = MainWindow()
-    w.show()
+    if w._small_screen:
+        w.showMaximized()
+    else:
+        w.show()
     if splash:
         splash.close()
     return app.exec()
