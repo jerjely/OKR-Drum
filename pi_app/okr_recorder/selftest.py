@@ -88,8 +88,12 @@ def run():
     w.show()
 
     def pc():
+        time.sleep(0.3)
+        # "Send session info" button: fills the fields but must not start a recording
+        os.write(master, ("S " + json.dumps({"animal": "M06", "treatment": "pre"}) + "\n").encode())
         time.sleep(0.6)
-        info = {"animal": "M07", "session": "2", "treatment": "saline", "stim_log": "M07_s2_x.csv"}
+        info = {"animal": "M07", "session": "2", "treatment": "saline", "stim_log": "M07_s2_x.csv",
+                "run_start": True}
         os.write(master, ("S " + json.dumps(info) + "\n").encode())
         time.sleep(0.8)
         for k, wait in ((1, 0.6), (2, 0.5)):
@@ -107,7 +111,10 @@ def run():
 
     if use_pty:
         threading.Thread(target=pc, daemon=True).start()
-        spin(1.0)
+        spin(0.6)
+        check(w.mouse.text() == "M06" and not rec.recording,
+              "'Send session info' fills the fields without starting a recording")
+        spin(0.7)
         check(w.mouse.text() == "M07" and w.treat.text() == "saline", "session info from the PC filled the fields")
         check(rec.recording, "recording started automatically with the run")
         spin(4.5)
@@ -139,6 +146,17 @@ def run():
             tr = [r["trial"] for r in rows]
             check(tr.count("1") > 5 and tr.count("2") > 5, "trial column filled during both gratings")
     # uploader with a stand-in for rclone
+    up.QUEUE_FILE = os.path.join(tempfile.mkdtemp(), "queue.json")
+    class Bad:
+        returncode, stderr = 1, 'ERROR : x: Failed to copy: {"error":"invalid_grant","error_codes":[700082]}'
+    ub = up.Uploader("onedrive:OKR Drum/recordings", runner=lambda cmd: Bad())
+    ub.add([os.path.join(cfg["output_dir"], files[0])], day="2026-01-01")
+    ub.start()
+    t0 = time.time()
+    while "waiting to retry" not in ub.status and time.time() - t0 < 5:
+        time.sleep(0.05)
+    ub.close()
+    check("rclone config reconnect onedrive:" in ub.status, "a sign-in error is explained (%s)" % ub.status[:60])
     calls = []
 
     class R:
@@ -150,7 +168,9 @@ def run():
     while u.pending() and time.time() - t0 < 5:
         time.sleep(0.05)
     u.close()
-    check(u.pending() == 0 and len(calls) == len(files) and calls and calls[0][1] == "copyto"
+    check(calls and calls[0][3].startswith("gdrive:OKR Drum/recordings/2026-01-01/"),
+          "files stuck for the old destination go to the new one")
+    check(u.pending() == 0 and len(calls) == len(files) + 1 and calls and calls[0][1] == "copyto"
           and calls[0][3].startswith("gdrive:OKR Drum/recordings/2026-01-01/"),
           "upload queue sends every file with rclone (%d calls)" % len(calls))
     w.close()

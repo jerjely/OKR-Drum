@@ -70,7 +70,9 @@ class Runner(QtCore.QObject):
         with open(self.base + "_settings.json", "w", encoding="utf-8") as f:
             json.dump({"protocol": self.p, "rig": rig.to_dict(), "meta": self.meta, "app_version": __version__,
                        "serial_port": self.port.device}, f, indent=1)
-        self.port.session(session_info(self.meta, self.p, os.path.basename(self.base) + ".csv"))
+        info = session_info(self.meta, self.p, os.path.basename(self.base) + ".csv")
+        info["run_start"] = True          # the Pi only auto-records on this, not on "Send session info"
+        self.port.session(info)
         self.fcsv = open(self.base + ".csv", "w", newline="", encoding="utf-8")
         self.writer = csv.DictWriter(self.fcsv, fieldnames=FIELDS, extrasaction="ignore")
         self.writer.writeheader()

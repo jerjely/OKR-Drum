@@ -175,7 +175,7 @@ class RecorderWindow(QtWidgets.QMainWindow):
             self.sl[name] = s
         side.addWidget(g)
 
-        g = QtWidgets.QGroupBox("Upload to Google Drive (rclone)")
+        g = QtWidgets.QGroupBox("Upload to the cloud (rclone)")
         f = QtWidgets.QFormLayout(g)
         self.up_on = QtWidgets.QCheckBox("upload when recording stops")
         self.up_on.setChecked(bool(self.cfg["upload"]))
@@ -286,7 +286,10 @@ class RecorderWindow(QtWidgets.QMainWindow):
                     self.exp.setText("okr_s%s" % info["session"])
             self.statusBar().showMessage("Session info from the lab PC: %s" % ", ".join(
                 "%s %s" % (k, v) for k, v in info.items() if k in ("animal", "treatment", "session", "date")), 15000)
-            if self.auto.isChecked() and not self.rec.recording:
+            # auto-record only when a run starts; "Send session info" just fills in the fields
+            # (older PC versions: a run start is the message that names a stimulus log)
+            run_start = info.get("run_start", bool(info.get("stim_log")))
+            if run_start and self.auto.isChecked() and not self.rec.recording:
                 self.toggle()
         if L.run_end_seq != self._seen_end:
             self._seen_end = L.run_end_seq
